@@ -275,10 +275,10 @@ public class ComputePlanActionTest extends SolrCloudTestCase {
     assertEquals(response.get("result").toString(), "success");
 
     CollectionAdminRequest.Create create = CollectionAdminRequest.createCollection("testNodeWithMultipleReplicasLost",
-        "conf",2, 3);
+        "conf", 2, 3);
     create.setMaxShardsPerNode(2);
     create.process(solrClient);
-
+    
     waitForState("Timed out waiting for replicas of new collection to be active",
         "testNodeWithMultipleReplicasLost", clusterShape(2, 3));
 
@@ -451,17 +451,17 @@ public class ComputePlanActionTest extends SolrCloudTestCase {
     assertEquals(response.get("result").toString(), "success");
 
     CollectionAdminRequest.Create create = CollectionAdminRequest.createCollection("testSelected1",
-        "conf",2, 2);
+        "conf", 2, 2);
     create.process(solrClient);
 
     create = CollectionAdminRequest.createCollection("testSelected2",
-        "conf",2, 2);
+        "conf", 2, 2);
     create.process(solrClient);
 
     create = CollectionAdminRequest.createCollection("testSelected3",
-        "conf",2, 2);
+        "conf", 2, 2);
     create.process(solrClient);
-
+    
     waitForState("Timed out waiting for replicas of new collection to be active",
         "testSelected1", clusterShape(2, 2));
 
@@ -517,7 +517,16 @@ public class ComputePlanActionTest extends SolrCloudTestCase {
   }
 
   @Test
-  @BadApple(bugUrl="https://issues.apache.org/jira/browse/SOLR-12028") // 14-Oct-2018
+  public void testNodeAddedTriggerWithAddReplicaPreferredOpReplicaType_1Shard() throws Exception {
+    String collectionNamePrefix = "testNodeAddedTriggerWithAddReplicaPreferredOpReplicaType_1Shard";
+    int numShards = 1;
+    int numCollections = 5;
+
+    nodeAddedTriggerWithAddReplicaPreferredOpReplicaType(collectionNamePrefix, numShards, numCollections);
+  }
+
+  @Test
+  // commented out on: 24-Dec-2018   @BadApple(bugUrl="https://issues.apache.org/jira/browse/SOLR-12028") // 14-Oct-2018
   public void testNodeAddedTriggerWithAddReplicaPreferredOp_2Shard() throws Exception {
     String collectionNamePrefix = "testNodeAddedTriggerWithAddReplicaPreferredOp_2Shard";
     int numShards = 2;
@@ -525,9 +534,7 @@ public class ComputePlanActionTest extends SolrCloudTestCase {
 
     nodeAddedTriggerWithAddReplicaPreferredOp(collectionNamePrefix, numShards, numCollections);
   }
-
   private void nodeAddedTriggerWithAddReplicaPreferredOp(String collectionNamePrefix, int numShards, int numCollections) throws Exception {
-    CloudSolrClient solrClient = cluster.getSolrClient();
     String setTriggerCommand = "{" +
         "'set-trigger' : {" +
         "'name' : 'node_added_trigger'," +
@@ -538,9 +545,6 @@ public class ComputePlanActionTest extends SolrCloudTestCase {
         "'actions' : [{'name':'compute_plan', 'class' : 'solr.ComputePlanAction'}," +
         "{'name':'test','class':'" + AssertingTriggerAction.class.getName() + "'}]" +
         "}}";
-    SolrRequest req = createAutoScalingRequest(SolrRequest.METHOD.POST, setTriggerCommand);
-    NamedList<Object> response = solrClient.request(req);
-    assertEquals(response.get("result").toString(), "success");
 
     String setClusterPolicyCommand = "{" +
         " 'set-cluster-policy': [" +
@@ -549,7 +553,44 @@ public class ComputePlanActionTest extends SolrCloudTestCase {
         "      {'nodeRole':'overseer', 'replica':0}" +
         "    ]" +
         "}";
-    req = createAutoScalingRequest(SolrRequest.METHOD.POST, setClusterPolicyCommand);
+
+    nodeAddedTriggerWithAddReplicaPreferredOp(collectionNamePrefix, numShards, numCollections, setTriggerCommand, setClusterPolicyCommand);
+  }
+
+  private void nodeAddedTriggerWithAddReplicaPreferredOpReplicaType(String collectionNamePrefix, int numShards, int numCollections) throws Exception {
+    String setTriggerCommand = "{" +
+        "'set-trigger' : {" +
+        "'name' : 'node_added_trigger'," +
+        "'event' : 'nodeAdded'," +
+        "'waitFor' : '1s'," +
+        "'enabled' : true," +
+        "'" + AutoScalingParams.PREFERRED_OP + "':'addreplica'," +
+        "'" + AutoScalingParams.REPLICA_TYPE + "':'" + Replica.Type.PULL + "'," +
+        "'actions' : [{'name':'compute_plan', 'class' : 'solr.ComputePlanAction'}," +
+        "{'name':'test','class':'" + AssertingTriggerAction.class.getName() + "'}]" +
+        "}}";
+
+    String setClusterPolicyCommand = "{" +
+        " 'set-cluster-policy': [" +
+        "      {'cores':'<" + (1 + numCollections * numShards) + "', 'node':'#ANY'}," +
+        "      {'replica':'#ALL', 'type':'PULL', 'sysprop.solrNodeType':'PULL'},"+
+        "      {'replica':'#ALL', 'type':'TLOG', 'sysprop.solrNodeType':'TLOG'},"+
+        "      {'replica':'#ALL', 'type':'NRT', 'sysprop.solrNodeType':'NRT'}," +
+        "      {'replica':'<2', 'shard': '#EACH', 'node': '#ANY'}," +
+        "      {'nodeRole':'overseer', 'replica':0}" +
+        "    ]" +
+        "}";
+
+    nodeAddedTriggerWithAddReplicaPreferredOp(collectionNamePrefix, numShards, numCollections, setTriggerCommand, setClusterPolicyCommand);
+  }
+
+  private void nodeAddedTriggerWithAddReplicaPreferredOp(String collectionNamePrefix, int numShards, int numCollections, String setTriggerCommand, String setClusterPolicyCommand) throws Exception {
+    CloudSolrClient solrClient = cluster.getSolrClient();
+    SolrRequest req = AutoScalingRequest.create(SolrRequest.METHOD.POST, setTriggerCommand);
+    NamedList<Object> response = solrClient.request(req);
+    assertEquals(response.get("result").toString(), "success");
+
+    req = AutoScalingRequest.create(SolrRequest.METHOD.POST, setClusterPolicyCommand);
     response = solrClient.request(req);
     assertEquals(response.get("result").toString(), "success");
 
